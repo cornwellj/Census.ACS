@@ -1,0 +1,85 @@
+---title: "Example"
+author: "John Cornwell"
+date: "December 21, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Censusapi Example
+
+This is a simple example of a data pull using the **censusapi** package.
+Get uninsured rates in Oregon by income group from the Small Area Health Insurance Estimates (SAHIE) timeseries API
+
+## Identify dataset of interest. 
+### In this example we will find the Small Area Health Insurance Estimates (SAHIE) timeseries API
+```{r}
+# list API endpoints and find the one that corresponds to SAHIE.
+
+APIList <- listCensusApis()
+
+# Row 72
+# Time Series Small Area Health Insurance Estimates: Small Area Health Insurance Estimates
+# **name = timeseries/healthins/sahie**
+# Vintage = NA
+# https://api.census.gov/data/timeseries/healthins/sahie
+# istemporal = TRUE
+# temporal = Time Series
+# description: The Small Area Health Insurance Estimates (SAHIE) program was created to develop model-based estimates of health insurance coverage for counties and states. SAHIE is only source of single-year health insurance coverage estimates for all U.S. counties. This program is partially funded by the Centers for Disease Control and Prevention`s (CDC) National Breast and Cervical Cancer Early Detection Program (NBCCEDP). The SAHIE program models health insurance coverage by combining survey data from several sources and then producing timely and accurate estimates of health insurance coverage. Additionally the SAHIE program`s age model methodology and estimates have undergone internal U.S. Census Bureau review as well as external review.
+# modified = 2017-03-28
+```
+
+## Excellent - now we have found the dataset we need to find out what is in the dataset. We need to get a list of variables so we can find the one we want.
+
+To do this we use the **listCensusMetadata** function. 
+```{r}
+# State-level data for Alabama
+sahie_vars <- listCensusMetadata(name="timeseries/healthins/sahie", type = "variables")
+sahie_vars
+```
+We’ll use a few of these variables to get uninsured rates by income group:
+IPRCAT: Income Poverty Ratio Category
+IPR_DESC: Income Poverty Ratio Category Description
+PCTUI_PT: Percent Uninsured in Demographic Group for Selected Income Range, Estimate
+NAME: Name of the geography returned (e.g. state or county name)
+
+## Next we have to find how to just pull data for Oregon. We can choose a region using the same **listCensusMetadata** command.
+sahie_vars <- listCensusMetadata(name="timeseries/healthins/sahie", type = "variables")
+
+```{r}
+sahie_geos <- listCensusMetadata(name="timeseries/healthins/sahie", type = "geography")
+sahie_geos
+```
+This tells us we can get information nationally, by state, or by county. Lets look nationally first. We use the function **getCensus**.
+```{r}
+# get uninsured rate by income group at the national level for 2015.
+getCensus(name="timeseries/healthins/sahie",
+          vars=c("NAME", "IPRCAT", "IPR_DESC", "PCTUI_PT"), 
+          region="us:*", time=2015)
+```
+Now at the state level. WE can get this by using region = "state:*":
+
+```{r}
+sahie_states <- getCensus(name="timeseries/healthins/sahie",
+    vars=c("NAME", "IPRCAT", "IPR_DESC", "PCTUI_PT"), 
+    region="state:*", time=2015)
+head(sahie_states)
+```
+
+There are 306 observations here and we just want Oregon. We can filter the data by using the state number.
+```{r}
+sahie_or <- getCensus(name="timeseries/healthins/sahie",
+    vars=c("NAME", "IPRCAT", "IPR_DESC", "PCTUI_PT"), 
+    region="state:41", time=2015)
+head(sahie_states)
+```
+
+Finally, we can get county-level data. The geography metadata showed that we can choose to get county-level data within states. We’ll use _region_ to specify county-level results and _regionin_ to request data for Alabama and Alaska.
+``` {r}
+sahie_counties <- getCensus(name="timeseries/healthins/sahie",
+    vars=c("NAME", "IPRCAT", "IPR_DESC", "PCTUI_PT"), 
+    region="county:*", regionin="state:41", time=2015)
+head(sahie_counties, n=12L)
+```
