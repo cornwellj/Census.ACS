@@ -1,0 +1,17 @@
+---
+title: "Census.ACS.AddAPIKey"
+author: "John Cornwell"
+date: "December 21, 2017"
+output: html_document
+---
+## Install **censusapi** and sdd API Key for Census - Run before trying to pull any data
+```{r setup, include=FALSE}
+# install.packages("devtools")
+devtools::install_github("hrecht/censusapi")
+# Add key to .Renviron
+Sys.setenv(CENSUS_KEY="65391b6bd098e99a339604c4ea74d6630e4e4f94")
+# Reload .Renviron
+readRenviron("~/.Renviron")
+# Check to see that the expected key is output in your R console
+Sys.getenv("CENSUS_KEY")
+```
