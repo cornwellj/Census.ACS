@@ -1,0 +1,219 @@
+---Title: "Census Fuel Type Analysis"
+Author: "John Cornwell"
+Date: "December 21, 2017"
+Output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+pkgs <- list("plyr", "dplyr", "tidyr")
+lapply(pkgs, library, character.only = TRUE) # load the required packages
+table(CAFuel.County$NAME)
+```
+
+# Censusapi Fuel Type Analysis Request
+
+We would want to know things like the following, but I’d happily take whatever info is actually available (so it doesn’t have to be as defined below):
+a) share of CA hhlds that use alternative fuels (probably mostly propane or wood, but maybe diesel, fuel oil, or coal) as a primary fuel of some sort (most likely for space or water heating)
+b) share of IOU customers in CA that use alternative fuels
+c) which fuels for either a or b
+d) any geographic pockets of high incidence
+e) if available, how these numbers look for LI hhlds
+f) anything we know about how many hhlds are entirely off the grid in CA
+
+## Identify dataset of interest. 
+### ACS 5 year vintage 2016
+```{r}
+# list API endpoints and find the one that corresponds to SAHIE.
+
+APIList <- listCensusApis()
+name: acs/acs5
+vintage 2016
+```
+
+## Excellent - now we have found the dataset we need to find out what is in the dataset. We need to get a list of variables so we can find the one we want.
+
+To do this we use the **listCensusMetadata** function. 
+```{r}
+
+acs5.2016_vars <- listCensusMetadata(name="acs/acs5", vintage = 2016, type = "variables")
+acs5.2016_vars
+acs5.2016_fuel_vars <- filter(acs5.2016_vars, grepl("FUEL",concept))
+print(acs5.2016_fuel_vars)
+acs5.2016_fuel_vars[, c(1, 2)] 
+```
+Fuel Vars:
+STATE: STATE FIPS CODE
+COUNTY:
+TRACT:
+BLKGRP:
+B25040_001E	Estimate!!Total			
+B25040_008E	Estimate!!Total!!Solar energy			
+B25040_009E	Estimate!!Total!!Other fuel			
+B25040_006E	Estimate!!Total!!Coal or coke			
+B25040_007E	Estimate!!Total!!Wood			
+B25040_004E	Estimate!!Total!!Electricity			
+B25040_005E	Estimate!!Total!!Fuel oil, kerosene, etc.			
+B25040_002E	Estimate!!Total!!Utility gas			
+B25040_003E	Estimate!!Total!!Bottled, tank, or LP gas	
+```{r}
+# get heating fuel count for CA in 2016 5 year ACS.
+CAFuel <- getCensus(name="acs/acs5", vintage = 2016,,
+          vars=c("STATE", "B25040_001E","B25040_008E","B25040_009E", "B25040_006E",
+                 "B25040_007E","B25040_004E","B25040_005E","B25040_002E","B25040_003E"), 
+          region="state:06")
+CAFuel.t <- as.data.frame(t(CAFuel))
+```
+County
+
+```{r}
+CAFuel.County <-  getCensus(name="acs/acs5", vintage = 2016,
+                  vars=c("COUNTY", "NAME", "B25040_001E","B25040_008E","B25040_009E", "B25040_006E","B25040_007E","B25040_004E","B25040_005E","B25040_002E","B25040_003E"), 
+                  region= "county:*", regionin =  "state:06")
+CAFuel.County$AltFuel <- rowSums(CAFuel.County[c("B25040_006E","B25040_007E","B25040_008E","B25040_009E","B25040_005E", "B25040_003E")], na.rm = T)
+CAFuel.County$PercAltF <- CAFuel.County$AltFuel/CAFuel.County$B25040_001E
+CAFuel.County.t <- as.data.frame(t(CAFuel.County))
+```
+
+Tracts
+```{r}
+CAFuel.Tract <-  getCensus(name="acs/acs5", vintage = 2016,,
+                  vars=c("GEO_ID","COUNTY", "NAME", "B25040_001E","B25040_008E","B25040_009E", "B25040_006E",
+                  "B25040_007E","B25040_004E","B25040_005E","B25040_002E","B25040_003E"), 
+                  region= "tract:*", regionin =  "state:06")
+CAFuel.Tract.t <- as.data.frame(t(CAFuel.Tract))
+
+```
+
+Import and merge IOU geo flags from Athens Research data onto tracts
+```{r}
+IOU_GEO_TRACT <- read.csv('ATHENS_BG_ONLY_UTILITYFLAG.csv', stringsAsFactors = F)
+IOU_GEO_TRACT <- unique(IOU_GEO_TRACT)
+IOU_GEO_TRACT$value <- 1
+IOU_GEO_TRACT$util <- as.factor(IOU_GEO_TRACT$util)
+IOU_GEO_TRACT.wide <- spread(IOU_GEO_TRACT, util, value)
+
+CAFuel.Tract$GEO_ID <- substring(CAFuel.Tract$GEO_ID, 8) 
+
+CAFuel.Tract.IOUGEO <- left_join(CAFuel.Tract, IOU_GEO_TRACT.wide, "GEO_ID")
+
+CAFuel.Tract.IOUGEO$IOU <- rowSums(CAFuel.Tract.IOUGEO[c("PGEEG", "PGEEO","PGEGO","SCEE","SCGG","SDGEE","SDGEG")], na.rm = T)
+CAFuel.Tract.IOUGEO$isIOU <- ifelse(CAFuel.Tract.IOUGEO$IOU > 0,1,0)
+
+write.csv(CAFuel.Tract.IOUGEO,"CAFuel.Tract.IOUGEO.csv")
+write.csv(CAFuel.County,"counties.csv")
+
+
+table(IOU_GEO_TRACT$util)
+table(CAFuel.Tract.IOUGEO$isIOU)
+```
+
+LI by county
+
+```{r}
+CAPov.County <-  getCensus(name="acs/acs5", vintage = 2016,
+                  vars=c("COUNTY", "NAME", "B17026_001E","B17026_002E","B17026_003E", "B17026_004E", "B17026_005E","B17026_006E","B17026_007E","B17026_008E","B17026_009E", "B17026_010E", "B17026_011E"), 
+                  region= "county:*", regionin =  "state:06")
+write.csv(CAPov.County,"CAPov.County.csv")
+
+CAFuel.County.t <- as.data.frame(t(CAFuel.County))
+```
+
+
+## Map of alternative fuel penetration - county
+```{r }
+library(FSA)
+library(ggplot2)
+rename(d, c("beta"="two", "gamma"="three"))
+
+CAFuel.County <- plyr::rename(CAFuel.County, c("NAME" = "subregion"))
+
+CAFuel.County.map <- CAFuel.County %>% group_by(subregion) %>% summarise(mean=mean(PercAltF,na.rm=T),                                                                      sd=sd(PercAltF,na.rm=T))
+
+CAFuel.County.map$subregion <- tolower(CAFuel.County.map$subregion)
+
+ca2 <-map_data('county',"california")
+
+ca2_join <- left_join(ca2, cntygroupformap2,by="subregion")
+ca2_join <- unique(ca2_join, by = subregion)
+
+ca_lookup <- ca2_join %>% distinct(subregion, .keep_all = T)
+
+table(ca_lookup$Quartile)
+
+## set directory
+setwd("~/R/HEUS-Paper/")
+
+##readOGR. This function, from the rgdal package, automatically extracts the information regarding the data.
+ca <- readOGR(dsn = "California County Shape Files/County", layer = "CaliforniaCounty")
+ca
+ca_ordered <- ca[ order(ca[,c("NAME")])]
+extract <- (ca$NAME)
+extract
+ca_f <-fortify(ca)
+head(ca_f)
+table(ca_f$id)
+extract <- as.data.frame(extract)
+names(extract)[names(extract) == 'extract'] <- 'subregion'
+extract$subregion <- as.character(extract$subregion)
+extract$subregion <- tolower(extract$subregion)
+ca_lookup2<- left_join(extract,ca_lookup, by = 'subregion')
+ca_lookup <- ca_lookup2
+
+ca_lookup$id <- row.names(ca_lookup) # allocate an id variable to the sp data
+ca_lookup$id <- as.numeric(ca_lookup$id)
+ca_lookup$id <- ca_lookup$id-1
+ca_lookup$id <- as.character(ca_lookup$id)
+ca_f <- merge(x = ca_f, y = ca_lookup[ , c("id", "Quartile", "mean", "totaln", "ci95","subregion")], by = "id", all.x=TRUE) # join the data
+
+table(ca_f$subregion,ca_f$Quartile)
+centroid_ca_f <- ddply(ca_f, c("subregion"), summarise,
+               mean.long = mean(long),
+               mean.lat   = mean(lat))
+
+ca_f <- merge(x = ca_f, y = centroid_ca_f, by = "subregion", all.x=TRUE) # join the data
+
+ca_f$Quartile_1_2 <- NA
+ca_f$Quartile_1_2 <- ifelse(ca_f$Quartile == '1', 1, NA)
+ca_f$Quartile_1_2 <- ifelse(ca_f$Quartile == '2', 1, ca_f$Quartile_1_2)
+ca_f$Quartile_1_2 <- ifelse(ca_f$Quartile == '3', 2, ca_f$Quartile_1_2)
+ca_f$Quartile_1_2 <- ifelse(ca_f$Quartile == '4', 3, ca_f$Quartile_1_2)
+ca_f$Quartile_1_2 <- as.factor(ca_f$Quartile_1_2)
+
+
+map <- ggplot(ca_f, aes(long, lat, group = group, fill = Quartile)) + geom_polygon() + coord_equal() +
+labs(fill = "County Efficiency Quartiles") + ggtitle("PG&E Service Territory Lighting By County Efficiency Quartiles")  + geom_path( data = ca_f , colour = "black")
+
+map2 <- ggplot(ca_f, aes(long, lat, group = group, fill = Quartile_1_2)) + geom_polygon() + coord_equal() + labs(fill = "County \nEfficiency Quartiles")  + geom_path( data = ca_f , colour = "black") +  theme(plot.title = element_text(hjust = 0.5)) + scale_fill_manual(labels = c("Quartiles 1-2","Quartile 3","Quartile 4"), breaks = c("1", "2", "3"),values = c("grey80","#00BFC4","#C77CFF"))
+
+table(ca_f$Quartile_1_2)
+
+map2
+scale_color_manual(breaks = c("1", "2", "3"), values = c("blue","purple","grey50")) +
+cnty_id_tbl_caf <- table(ca_f$subregion, ca_f$id)
+cnty_id_tbl_ca_lookup <- table(ca_lookup$subregion, ca_lookup$id)
+cnty_id_tbl_ca_lookup <- table(ca_lookup$subregion, ca_lookup$id)
+
+write.csv(cnty_id_tbl_ca_lookup,"cnty_id_tbl_ca_lookup.csv")
+write.csv(cnty_id_tbl_caf,"cnty_id_tbl_caf.csv")
+write.csv(cnty_id_tbl_caf,"cnty_id_tbl_cafmerge.csv")
+
++ geom_text(data=ca_f, aes(mean.long, mean.lat, label = subregion), size=1)
+
+map2
+map3
+```
+Blocks -- NOT DONE
+```{r}
+CAFuel.Blocks <-  getCensus(name="acs/acs5", vintage = 2016,
+                  vars=c("BLKGRP"), 
+                  region=  "county")
+CAFuel.Tract.t <- as.data.frame(t(CAFuel.Tract))
+
+
+IOU_GEO_TRACT_Counties <- IOU_GEO_TRACT.wide
+IOU_GEO_TRACT_Counties$CntyID <- substring(IOU_GEO_TRACT_Counties$GEO_ID, 5,7)
+IOU_GEO_TRACT_Counties <- IOU_GEO_TRACT_Counties[!duplicated(IOU_GEO_TRACT_Counties$CntyID), ]
+write.csv(IOU_GEO_TRACT_Counties,"IOUCounty.csv")
+
+```
